@@ -17,12 +17,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useStyles, FONT_SCALES, font, radius } from '../theme';
 import { IconCircle } from './ui';
 import { APP_NAME, APP_VERSION } from '../config';
+import { useAuth } from '../cloud/AuthContext';
 
 const WIDTH = Math.min(Dimensions.get('window').width * 0.82, 340);
 
 export default function Drawer({ visible, onClose, onNavigate }) {
   const { colors, dark, toggleDark, scaleKey, setScaleKey, fs } = useTheme();
   const s = useStyles(makeStyles);
+  const { user } = useAuth();
   const slide = useRef(new Animated.Value(0)).current; // 0 = closed, 1 = open
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -57,10 +59,17 @@ export default function Drawer({ visible, onClose, onNavigate }) {
 
   if (!mounted) return null;
 
-  const navRow = (icon, label, page) => (
+  const navRow = (icon, label, page, sub) => (
     <TouchableOpacity key={label} style={s.row} onPress={() => onNavigate(page)} activeOpacity={0.7}>
       <IconCircle name={icon} size={38} />
-      <Text style={s.rowText}>{label}</Text>
+      <View style={s.rowTextWrap}>
+        <Text style={s.rowLabel}>{label}</Text>
+        {sub ? (
+          <Text style={s.rowSub} numberOfLines={1}>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
       <Ionicons name="chevron-forward" size={fs(18)} color={colors.muted} />
     </TouchableOpacity>
   );
@@ -89,6 +98,14 @@ export default function Drawer({ visible, onClose, onNavigate }) {
         </View>
 
         <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+          <Text style={s.group}>Account</Text>
+          {navRow(
+            user ? 'person-circle' : 'person-circle-outline',
+            'Account',
+            'account',
+            user ? user.email || user.name : 'Guest: data stays on this phone'
+          )}
+
           <Text style={s.group}>About</Text>
           {navRow('information-circle-outline', 'About us', 'about')}
           {navRow('mail-outline', 'Contacts', 'contacts')}
@@ -180,6 +197,9 @@ const makeStyles = (c, fs) =>
       paddingVertical: 11,
     },
     rowText: { flex: 1, fontFamily: font.semibold, fontSize: fs(16), color: c.ink, marginLeft: 14 },
+    rowTextWrap: { flex: 1, marginLeft: 14 },
+    rowLabel: { fontFamily: font.semibold, fontSize: fs(16), color: c.ink },
+    rowSub: { fontFamily: font.regular, fontSize: fs(12), color: c.muted, marginTop: 1 },
     sizeBlock: { paddingHorizontal: 22, paddingVertical: 11 },
     sizeHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
     sizeRow: { flexDirection: 'row', gap: 8 },

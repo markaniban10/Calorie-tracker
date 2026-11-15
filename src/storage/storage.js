@@ -227,3 +227,48 @@ export async function addWeight({ date, kg }) {
 export async function deleteWeight(id) {
   await db.runAsync('DELETE FROM weights WHERE id = ?', [id]);
 }
+
+// ---------- Backup / restore (used by account cloud backup) ----------
+
+export async function exportData() {
+  const profile = await getProfile();
+  const entries = await db.getAllAsync('SELECT date, name, kcal FROM entries ORDER BY id');
+  const weights = await db.getAllAsync('SELECT date, kg FROM weights ORDER BY date');
+  const customFoods = await db.getAllAsync(
+    'SELECT name, serving, kcal, grams FROM foods WHERE is_custom = 1 ORDER BY id'
+  );
+  return { schema: 1, exportedAt: Date.now(), profile, entries, weights, customFoods };
+}
+
+// Replaces this phone's log, weights, own foods and profile with the backup.
+export async function importData(data) {
+  if (!data || data.schema !== 1) throw new Error('This backup is not in a format this app understands.');
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM entries');
+    await db.runAsync('DELETE FROM weights');
+    await db.runAsync('DELETE FROM foods WHERE is_custom = 1');
+
+    for (const e of data.entries || []) {
+      await db.runAsync('INSERT INTO entries (date, name, kcal, food_id) VALUES (?, ?, ?, NULL)', [
+        e.date,
+        e.name,
+        e.kcal,
+      ]);
+    }
+    for (const w of data.weights || []) {
+      await db.runAsync('INSERT OR REPLACE INTO weights (date, kg) VALUES (?, ?)', [w.date, w.kg]);
+    }
+    for (const f of data.customFoods || []) {
+      await db.runAsync(
+        'INSERT INTO foods (name, serving, kcal, grams, is_custom, last_used) VALUES (?, ?, ?, ?, 1, NULL)',
+        [f.name, f.serving, f.kcal, f.grams ?? null]
+      );
+    }
+    if (data.profile) {
+      await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
+        'profile',
+        JSON.stringify(data.profile),
+      ]);
+    }
+  });
+}

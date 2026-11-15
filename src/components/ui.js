@@ -60,7 +60,7 @@ export function SectionTitle({ icon, title, right }) {
   );
 }
 
-export function Field({ label, suffix, value, onChangeText, placeholder, keyboardType = 'numeric' }) {
+export function Field({ label, suffix, value, onChangeText, placeholder, keyboardType = 'numeric', autoCapitalize }) {
   const s = useStyles(makeStyles);
   const { colors } = useTheme();
   const [focus, setFocus] = useState(false);
@@ -75,10 +75,46 @@ export function Field({ label, suffix, value, onChangeText, placeholder, keyboar
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={false}
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
         />
         {suffix ? <Text style={s.suffix}>{suffix}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+// Password input with an eye icon to show / hide what you typed.
+export function PasswordField({ label, value, onChangeText, placeholder }) {
+  const s = useStyles(makeStyles);
+  const { colors, fs } = useTheme();
+  const [focus, setFocus] = useState(false);
+  const [visible, setVisible] = useState(false);
+  return (
+    <View style={s.fieldWrap}>
+      <Label>{label}</Label>
+      <View style={[s.inputRow, focus && s.inputFocus]}>
+        <TextInput
+          style={s.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={colors.muted}
+          secureTextEntry={!visible}
+          autoCapitalize="none"
+          autoCorrect={false}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+        />
+        <TouchableOpacity
+          onPress={() => setVisible((v) => !v)}
+          hitSlop={12}
+          accessibilityLabel={visible ? 'Hide password' : 'Show password'}
+        >
+          <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={fs(22)} color={colors.muted} />
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -106,16 +142,18 @@ export function Chips({ options, value, onChange }) {
 }
 
 // variant: 'solid' | 'ghost' | 'danger'.  icon: Ionicons name (optional)
-export function Button({ title, onPress, variant = 'solid', style, small, icon }) {
+export function Button({ title, onPress, variant = 'solid', style, small, icon, disabled }) {
   const s = useStyles(makeStyles);
   const { colors, fs } = useTheme();
   const tint = variant === 'solid' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.ink;
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       activeOpacity={0.8}
       style={[
         s.btn,
+        disabled && { opacity: 0.55 },
         small && s.btnSmall,
         variant === 'ghost' && s.btnGhost,
         variant === 'danger' && s.btnDanger,

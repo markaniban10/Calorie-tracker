@@ -28,6 +28,9 @@ import TodayScreen from './src/screens/TodayScreen';
 import WeightScreen from './src/screens/WeightScreen';
 import AboutScreen from './src/screens/AboutScreen';
 import ContactsScreen from './src/screens/ContactsScreen';
+import AccountScreen from './src/screens/AccountScreen';
+import LoginScreen from './src/screens/LoginScreen';
+import { AuthProvider, useAuth } from './src/cloud/AuthContext';
 
 const TABS = [
   { key: 'today', label: 'Today', title: 'Today', icon: 'today-outline', iconOn: 'today' },
@@ -38,6 +41,8 @@ const TABS = [
 const PAGES = {
   about: { title: 'About us' },
   contacts: { title: 'Contacts' },
+  account: { title: 'Account' },
+  login: { title: 'Sign in' },
 };
 
 export default function App() {
@@ -53,6 +58,8 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [dark, setDark] = useState(false);
   const [scaleKey, setScaleKey] = useState(DEFAULT_SCALE_KEY);
+  const [initialMode, setInitialMode] = useState(null); // 'guest' | 'user' | null (first launch)
+  const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -60,6 +67,8 @@ export default function App() {
         await storage.initStorage();
         setProfile(await storage.getProfile());
         setDark((await storage.getSetting('dark_mode')) === '1');
+        const savedMode = await storage.getSetting('account_mode');
+        setInitialMode(savedMode === 'guest' || savedMode === 'user' ? savedMode : null);
         const savedScale = await storage.getSetting('font_scale');
         if (FONT_SCALES.some((f) => f.key === savedScale)) setScaleKey(savedScale);
         setReady(true);
@@ -83,6 +92,12 @@ export default function App() {
   const saveProfile = useCallback(async (p) => {
     await storage.saveProfile(p);
     setProfile(p);
+  }, []);
+
+  // after a cloud restore: reload the profile and remount the screens so they show the new data
+  const handleDataRestored = useCallback(async () => {
+    setProfile(await storage.getProfile());
+    setDataVersion((v) => v + 1);
   }, []);
 
   const light = palettes.light;
@@ -117,18 +132,26 @@ export default function App() {
   return (
     <ThemeProvider dark={dark} onToggle={toggleDark} scaleKey={scaleKey} onScaleChange={setScaleKey}>
       <ToastProvider>
-        <Main profile={profile} onSaveProfile={saveProfile} initialTab={profile ? 'today' : 'profile'} />
+        <AuthProvider initialMode={initialMode} onDataRestored={handleDataRestored}>
+          <Main
+            profile={profile}
+            onSaveProfile={saveProfile}
+            initialTab={profile ? 'today' : 'profile'}
+            dataVersion={dataVersion}
+          />
+        </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
   );
 }
 
-function Main({ profile, onSaveProfile, initialTab }) {
+function Main({ profile, onSaveProfile, initialTab, dataVersion }) {
   const { colors, fs } = useTheme();
   const s = useStyles(makeStyles);
   const { show } = useToast();
+  const { mode } = useAuth();
   const [tab, setTab] = useState(initialTab);
-  const [page, setPage] = useState(null); // null | 'about' | 'contacts'
+  const [page, setPage] = useState(null); // null | 'about' | 'contacts' | 'account' | 'login'
   const [drawer, setDrawer] = useState(false);
 
   const closeDrawer = useCallback(() => setDrawer(false), []);
@@ -156,6 +179,16 @@ function Main({ profile, onSaveProfile, initialTab }) {
   const current = TABS.find((t) => t.key === tab);
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
+  // First launch: choose to sign in or continue as a guest (accounts are optional)
+  if (mode === null) {
+    return (
+      <SafeAreaView style={s.root}>
+        <StatusBar barStyle={colors.statusBar} backgroundColor={colors.bg} />
+        <LoginScreen onDone={() => {}} />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={s.root}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.bg} />
@@ -181,9 +214,11 @@ function Main({ profile, onSaveProfile, initialTab }) {
       )}
 
       {/* Content */}
-      <View style={{ flex: 1 }}>
+      <View key={dataVersion} style={{ flex: 1 }}>
         {page === 'about' && <AboutScreen />}
         {page === 'contacts' && <ContactsScreen />}
+        {page === 'account' && <AccountScreen onOpenLogin={() => setPage('login')} />}
+        {page === 'login' && <LoginScreen onDone={() => setPage('account')} />}
         {!page && tab === 'today' && <TodayScreen profile={profile} goToProfile={() => setTab('profile')} />}
         {!page && tab === 'weight' && <WeightScreen />}
         {!page && tab === 'profile' && <ProfileScreen profile={profile} onSave={handleSaveProfile} />}
