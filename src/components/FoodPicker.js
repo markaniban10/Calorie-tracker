@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { Card, Field, Chips, Button, Label } from './ui';
+import { Ionicons } from '@expo/vector-icons';
+import { Card, Field, Chips, Button, Label, confirmRemove } from './ui';
+import FoodForm from './FoodForm';
+import { useToast } from './Toast';
 import * as storage from '../storage/storage';
-import { colors, radius } from '../theme';
+import { useTheme, useStyles, radius, font } from '../theme';
 
 const MODES = [
   { key: 'search', label: 'Search food' },
@@ -15,16 +18,20 @@ const UNITS = [
 ];
 
 export default function FoodPicker({ onLog }) {
+  const { colors, fs } = useTheme();
+  const s = useStyles(makeStyles);
+  const { show } = useToast();
+
   const [mode, setMode] = useState('search');
   const [query, setQuery] = useState('');
-  const [showAll, setShowAll] = useState(false); // "Show all foods" toggle
+  const [showAll, setShowAll] = useState(false);
   const [results, setResults] = useState([]);
   const [recent, setRecent] = useState([]);
   const [tick, setTick] = useState(0); // bump to reload the lists
   const [selected, setSelected] = useState(null);
-  const [unit, setUnit] = useState('serving'); // 'serving' | 'grams'
+  const [unit, setUnit] = useState('serving');
   const [amount, setAmount] = useState('1');
-  const [custom, setCustom] = useState(null); // { name, serving, grams, kcal }
+  const [custom, setCustom] = useState(null); // null or { name } when adding your own food
   const [quick, setQuick] = useState({ name: '', kcal: '' });
 
   const typing = query.trim().length > 0;
@@ -44,7 +51,7 @@ export default function FoodPicker({ onLog }) {
     return () => {
       cancelled = true;
     };
-  }, [query, showAll, tick]);
+  }, [query, showAll, tick, typing]);
 
   const changeMode = (m) => {
     setMode(m);
@@ -63,6 +70,13 @@ export default function FoodPicker({ onLog }) {
     setAmount(u === 'grams' ? String(selected.grams) : '1');
   };
 
+  const resetSearch = () => {
+    setSelected(null);
+    setQuery('');
+    setShowAll(false);
+    setTick((t) => t + 1);
+  };
+
   const logSelected = async () => {
     const n = parseFloat(amount);
     if (!n || n <= 0) {
@@ -78,45 +92,28 @@ export default function FoodPicker({ onLog }) {
       name = n === 1 ? selected.name : `${selected.name} (x${n})`;
     }
     await onLog({ name, kcal: total, foodId: selected.id });
-    setSelected(null);
-    setQuery('');
-    setShowAll(false);
-    setTick((t) => t + 1);
+    show(`Added ${total} kcal`);
+    resetSearch();
   };
 
-  const saveCustom = async () => {
-    const kcal = parseInt(custom.kcal, 10);
-    if (!custom.name.trim() || !kcal || kcal <= 0) {
-      Alert.alert('Missing info', 'Enter a name and the calories per serving.');
-      return;
-    }
-    const grams = parseFloat(custom.grams) || null;
-    const food = await storage.addCustomFood({
-      name: custom.name.trim(),
-      serving: custom.serving.trim(),
-      kcal,
-      grams,
-    });
+  const saveCustom = async (values) => {
+    const food = await storage.addCustomFood(values);
     await onLog({ name: food.name, kcal: food.kcal, foodId: food.id });
+    show(`Saved "${food.name}" and logged it`);
     setCustom(null);
-    setQuery('');
-    setShowAll(false);
-    setTick((t) => t + 1);
+    resetSearch();
   };
 
-  const removeFood = (food) => {
-    Alert.alert('Remove food', `Remove "${food.name}" from your foods? Past logs are kept.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          await storage.deleteFood(food.id);
-          setTick((t) => t + 1);
-        },
-      },
-    ]);
-  };
+  const removeFood = (food) =>
+    confirmRemove(
+      `Remove "${food.name}"?`,
+      'This deletes it from your foods. Meals you already logged keep their calories.',
+      async () => {
+        await storage.deleteFood(food.id);
+        show(`Removed ${food.name}`);
+        setTick((t) => t + 1);
+      }
+    );
 
   const quickAdd = async () => {
     const kcal = parseInt(quick.kcal, 10);
@@ -125,6 +122,7 @@ export default function FoodPicker({ onLog }) {
       return;
     }
     await onLog({ name: quick.name.trim(), kcal });
+    show(`Added ${kcal} kcal`);
     setQuick({ name: '', kcal: '' });
   };
 
@@ -142,8 +140,8 @@ export default function FoodPicker({ onLog }) {
       </View>
       <Text style={s.rKcal}>{f.kcal}</Text>
       {f.isCustom && (
-        <TouchableOpacity onPress={() => removeFood(f)} hitSlop={10} style={{ marginLeft: 10 }}>
-          <Text style={s.del}>Remove</Text>
+        <TouchableOpacity onPress={() => removeFood(f)} hitSlop={10} style={{ marginLeft: 12 }}>
+          <Ionicons name="trash-outline" size={fs(18)} color={colors.danger} />
         </TouchableOpacity>
       )}
     </TouchableOpacity>
@@ -168,47 +166,18 @@ export default function FoodPicker({ onLog }) {
           onChangeText={(v) => setQuick((q) => ({ ...q, kcal: v }))}
           placeholder="450"
         />
-        <Button title="Add" onPress={quickAdd} />
+        <Button title="Add" icon="add" onPress={quickAdd} />
       </>
     );
   } else if (custom) {
     body = (
-      <>
-        <Text style={s.heading}>Add your own food</Text>
-        <Field
-          label="Name"
-          value={custom.name}
-          onChangeText={(v) => setCustom((c) => ({ ...c, name: v }))}
-          placeholder="My usual chicken rice"
-          keyboardType="default"
-        />
-        <Field
-          label="Serving size"
-          value={custom.serving}
-          onChangeText={(v) => setCustom((c) => ({ ...c, serving: v }))}
-          placeholder="1 plate"
-          keyboardType="default"
-        />
-        <Field
-          label="Calories per serving"
-          suffix="kcal"
-          value={custom.kcal}
-          onChangeText={(v) => setCustom((c) => ({ ...c, kcal: v }))}
-          placeholder="650"
-        />
-        <Field
-          label="Weight of one serving (optional)"
-          suffix="g"
-          value={custom.grams}
-          onChangeText={(v) => setCustom((c) => ({ ...c, grams: v }))}
-          placeholder="300"
-        />
-        <Text style={s.hint}>
-          Tip: copy calories from the nutrition label. Add the serving weight to log this food by grams later.
-        </Text>
-        <Button title="Save food and log it" onPress={saveCustom} />
-        <Button title="Cancel" variant="ghost" onPress={() => setCustom(null)} style={{ marginTop: 8 }} />
-      </>
+      <FoodForm
+        title="Add your own food"
+        initial={{ name: custom.name }}
+        saveLabel="Save food and log it"
+        onSave={saveCustom}
+        onCancel={() => setCustom(null)}
+      />
     );
   } else if (selected) {
     const n = parseFloat(amount) || 0;
@@ -236,7 +205,7 @@ export default function FoodPicker({ onLog }) {
           onChangeText={setAmount}
           placeholder="1"
         />
-        <Button title={`Add ${total} kcal`} onPress={logSelected} />
+        <Button title={`Add ${total} kcal`} icon="add" onPress={logSelected} />
         <Button title="Back" variant="ghost" onPress={() => setSelected(null)} style={{ marginTop: 8 }} />
       </>
     );
@@ -245,6 +214,7 @@ export default function FoodPicker({ onLog }) {
     body = (
       <>
         <View style={s.searchRow}>
+          <Ionicons name="search" size={fs(18)} color={colors.muted} style={{ marginRight: 8 }} />
           <TextInput
             style={s.search}
             value={query}
@@ -256,16 +226,14 @@ export default function FoodPicker({ onLog }) {
           />
           {typing ? (
             <TouchableOpacity onPress={() => setQuery('')} hitSlop={10}>
-              <Text style={s.clear}>Clear</Text>
+              <Ionicons name="close-circle" size={fs(20)} color={colors.muted} />
             </TouchableOpacity>
           ) : null}
         </View>
 
-        {/* Typing: matching foods only */}
         {typing && results.length === 0 && <Text style={s.hint}>No food starts with "{query.trim()}".</Text>}
         {typing && results.map(renderFood)}
 
-        {/* Not typing, list hidden: recent foods only */}
         {!typing && !showAll && recent.length > 0 && (
           <>
             <Label>Recent</Label>
@@ -276,7 +244,6 @@ export default function FoodPicker({ onLog }) {
           <Text style={s.hint}>Type to search, or tap Show all foods.</Text>
         )}
 
-        {/* Not typing, list shown: everything A to Z with letter headings */}
         {!typing &&
           showAll &&
           results.map((f) => {
@@ -294,6 +261,7 @@ export default function FoodPicker({ onLog }) {
         {!typing && (
           <Button
             title={showAll ? 'Hide all foods' : 'Show all foods'}
+            icon={showAll ? 'chevron-up' : 'list-outline'}
             variant="ghost"
             onPress={() => setShowAll((v) => !v)}
             style={{ marginTop: 10 }}
@@ -302,8 +270,9 @@ export default function FoodPicker({ onLog }) {
 
         <Button
           title={typing ? `Add "${query.trim()}" as your own food` : 'Add your own food'}
+          icon="add-circle-outline"
           variant="ghost"
-          onPress={() => setCustom({ name: query.trim(), serving: '1 serving', grams: '', kcal: '' })}
+          onPress={() => setCustom({ name: query.trim() })}
           style={{ marginTop: 8 }}
         />
       </>
@@ -318,38 +287,31 @@ export default function FoodPicker({ onLog }) {
   );
 }
 
-const s = StyleSheet.create({
-  heading: { fontSize: 18, fontWeight: '800', color: colors.ink, marginBottom: 2 },
-  hint: { color: colors.muted, fontSize: 13, lineHeight: 18, marginBottom: 12 },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bg,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  search: { flex: 1, height: 46, fontSize: 17, color: colors.ink },
-  clear: { color: colors.muted, fontSize: 14, fontWeight: '600', marginLeft: 8 },
-  letter: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.deficit,
-    marginTop: 12,
-    marginBottom: 2,
-  },
-  result: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  rName: { fontSize: 16, fontWeight: '600', color: colors.ink },
-  rServing: { fontSize: 13, color: colors.muted, marginTop: 2 },
-  rKcal: { fontSize: 16, fontWeight: '800', color: colors.ink },
-  mine: { fontSize: 12, color: colors.deficit, fontWeight: '700' },
-  del: { color: colors.danger, fontSize: 13, fontWeight: '600' },
-});
+const makeStyles = (c, fs) =>
+  StyleSheet.create({
+    heading: { fontFamily: font.black, fontSize: fs(20), color: c.ink, marginBottom: 2 },
+    hint: { fontFamily: font.regular, color: c.muted, fontSize: fs(13), lineHeight: fs(19), marginBottom: 12 },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderColor: c.line,
+      borderRadius: radius.sm,
+      backgroundColor: c.inputBg,
+      paddingHorizontal: 14,
+      marginBottom: 12,
+    },
+    search: { flex: 1, minHeight: fs(50), fontFamily: font.medium, fontSize: fs(17), color: c.ink },
+    letter: { fontFamily: font.black, fontSize: fs(13), color: c.deficit, marginTop: 12, marginBottom: 2 },
+    result: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: c.line,
+    },
+    rName: { fontFamily: font.semibold, fontSize: fs(16), color: c.ink },
+    rServing: { fontFamily: font.regular, fontSize: fs(13), color: c.muted, marginTop: 2 },
+    rKcal: { fontFamily: font.black, fontSize: fs(16), color: c.ink },
+    mine: { fontFamily: font.bold, fontSize: fs(12), color: c.deficit },
+  });

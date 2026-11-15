@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Text, Alert, StyleSheet } from 'react-native';
 import { Field, Button } from './ui';
-import { useStyles } from '../theme';
+import { useStyles, font } from '../theme';
 
-// Shared form for adding or editing one of the user's own foods.
+// Form for adding one of the user's own foods.
 export default function FoodForm({ title, initial, saveLabel = 'Save food', onSave, onCancel }) {
   const s = useStyles(makeStyles);
   const [f, setF] = useState({
@@ -38,14 +38,14 @@ export default function FoodForm({ title, initial, saveLabel = 'Save food', onSa
       <Text style={s.hint}>
         Tip: copy calories from the nutrition label. Add the serving weight to log this food by grams later.
       </Text>
-      <Button title={saveLabel} onPress={submit} />
+      <Button title={saveLabel} icon="checkmark" onPress={submit} />
       <Button title="Cancel" variant="ghost" onPress={onCancel} style={{ marginTop: 8 }} />
     </>
   );
 }
 
-const makeStyles = (c) =>
+const makeStyles = (c, fs) =>
   StyleSheet.create({
-    heading: { fontSize: 18, fontWeight: '800', color: c.ink, marginBottom: 12 },
-    hint: { color: c.muted, fontSize: 13, lineHeight: 18, marginBottom: 12 },
+    heading: { fontFamily: font.black, fontSize: fs(20), color: c.ink, marginBottom: 12 },
+    hint: { fontFamily: font.regular, color: c.muted, fontSize: fs(13), lineHeight: fs(19), marginBottom: 12 },
   });

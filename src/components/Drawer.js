@@ -1,131 +1,145 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  BackHandler,
   Dimensions,
-  Linking,
-  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Switch,
   Text,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { useTheme, useStyles, radius } from '../theme';
-import { Button } from './ui';
-import { APP_NAME, APP_VERSION, ABOUT, CONTACTS } from '../config';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme, useStyles, FONT_SCALES, font, radius } from '../theme';
+import { IconCircle } from './ui';
+import { APP_NAME, APP_VERSION } from '../config';
 
-const WIDTH = Math.min(Dimensions.get('window').width * 0.8, 320);
+const WIDTH = Math.min(Dimensions.get('window').width * 0.82, 340);
 
-export default function Drawer({ visible, onClose }) {
-  const { colors, dark, toggleDark } = useTheme();
+export default function Drawer({ visible, onClose, onNavigate }) {
+  const { colors, dark, toggleDark, scaleKey, setScaleKey, fs } = useTheme();
   const s = useStyles(makeStyles);
   const slide = useRef(new Animated.Value(0)).current; // 0 = closed, 1 = open
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const [mounted, setMounted] = useState(false);
-  const [info, setInfo] = useState(null); // 'about' | 'contacts' | null
 
+  // slide in / out
   useEffect(() => {
     if (visible) {
       setMounted(true);
       Animated.timing(slide, { toValue: 1, duration: 220, useNativeDriver: true }).start();
-    } else {
-      Animated.timing(slide, { toValue: 0, duration: 180, useNativeDriver: true }).start(({ finished }) => {
-        if (finished) setMounted(false);
-      });
+      return undefined;
     }
+    Animated.timing(slide, { toValue: 0, duration: 180, useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setMounted(false);
+    });
+    // safety net: always unmount shortly after closing
+    const t = setTimeout(() => {
+      if (!visibleRef.current) setMounted(false);
+    }, 300);
+    return () => clearTimeout(t);
   }, [visible, slide]);
 
-  const openInfo = (which) => {
-    onClose();
-    setInfo(which);
-  };
+  // Android back button closes the sidebar
+  useEffect(() => {
+    if (!visible) return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
 
-  const openLink = (url) => {
-    if (url) Linking.openURL(url).catch(() => {});
-  };
+  if (!mounted) return null;
+
+  const navRow = (icon, label, page) => (
+    <TouchableOpacity key={label} style={s.row} onPress={() => onNavigate(page)} activeOpacity={0.7}>
+      <IconCircle name={icon} size={38} />
+      <Text style={s.rowText}>{label}</Text>
+      <Ionicons name="chevron-forward" size={fs(18)} color={colors.muted} />
+    </TouchableOpacity>
+  );
 
   return (
-    <>
-      {mounted && (
-        <View style={s.overlay}>
-          <TouchableWithoutFeedback onPress={onClose}>
-            <Animated.View style={[s.backdrop, { opacity: slide }]} />
-          </TouchableWithoutFeedback>
+    <View style={s.overlay}>
+      {/* Tap anywhere outside the panel to close */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose}>
+        <Animated.View pointerEvents="none" style={[s.backdrop, { opacity: slide }]} />
+      </Pressable>
 
-          <Animated.View
-            style={[
-              s.panel,
-              { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-WIDTH, 0] }) }] },
-            ]}
-          >
-            <View style={s.brand}>
-              <Text style={s.brandName}>{APP_NAME}</Text>
-              <Text style={s.brandSub}>Offline. No account.</Text>
-            </View>
-
-            <TouchableOpacity style={s.row} onPress={() => openInfo('about')} activeOpacity={0.7}>
-              <Text style={s.rowText}>About us</Text>
-              <Text style={s.chev}>{'>'}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={s.row} onPress={() => openInfo('contacts')} activeOpacity={0.7}>
-              <Text style={s.rowText}>Contacts</Text>
-              <Text style={s.chev}>{'>'}</Text>
-            </TouchableOpacity>
-
-            <View style={s.row}>
-              <Text style={s.rowText}>Dark mode</Text>
-              <Switch
-                value={dark}
-                onValueChange={toggleDark}
-                trackColor={{ false: colors.line, true: colors.deficit }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-
-            <View style={s.footer}>
-              <Text style={s.version}>App version v{APP_VERSION}</Text>
-            </View>
-          </Animated.View>
-        </View>
-      )}
-
-      <Modal visible={info !== null} transparent animationType="fade" onRequestClose={() => setInfo(null)}>
-        <View style={s.modalWrap}>
-          <TouchableWithoutFeedback onPress={() => setInfo(null)}>
-            <View style={s.modalBackdrop} />
-          </TouchableWithoutFeedback>
-          <View style={s.sheet}>
-            <Text style={s.sheetTitle}>{info === 'about' ? 'About us' : 'Contacts'}</Text>
-            <ScrollView style={{ maxHeight: 320 }}>
-              {info === 'about' &&
-                ABOUT.map((p, i) => (
-                  <Text key={i} style={s.para}>
-                    {p}
-                  </Text>
-                ))}
-              {info === 'contacts' &&
-                CONTACTS.map((c) => (
-                  <TouchableOpacity key={c.label} style={s.contact} onPress={() => openLink(c.url)} activeOpacity={0.7}>
-                    <Text style={s.contactLabel}>{c.label}</Text>
-                    <Text style={s.contactValue}>{c.value}</Text>
-                  </TouchableOpacity>
-                ))}
-            </ScrollView>
-            <Button title="Close" onPress={() => setInfo(null)} style={{ marginTop: 14 }} />
+      <Animated.View
+        style={[
+          s.panel,
+          { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-WIDTH, 0] }) }] },
+        ]}
+      >
+        <View style={s.brand}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.brandName}>{APP_NAME}</Text>
+            <Text style={s.brandSub}>Offline. No account.</Text>
           </View>
+          <TouchableOpacity onPress={onClose} style={s.closeBtn} hitSlop={10} activeOpacity={0.7}>
+            <Ionicons name="close" size={fs(24)} color={colors.muted} />
+          </TouchableOpacity>
         </View>
-      </Modal>
-    </>
+
+        <ScrollView contentContainerStyle={{ paddingBottom: 90 }}>
+          <Text style={s.group}>About</Text>
+          {navRow('information-circle-outline', 'About us', 'about')}
+          {navRow('mail-outline', 'Contacts', 'contacts')}
+
+          <Text style={s.group}>Preferences</Text>
+
+          <View style={s.row}>
+            <IconCircle name={dark ? 'moon' : 'sunny-outline'} size={38} tone="neutral" />
+            <Text style={s.rowText}>Dark mode</Text>
+            <Switch
+              value={dark}
+              onValueChange={toggleDark}
+              trackColor={{ false: colors.line, true: colors.deficit }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          <View style={s.sizeBlock}>
+            <View style={s.sizeHead}>
+              <IconCircle name="text-outline" size={38} tone="neutral" />
+              <Text style={s.rowText}>Text size</Text>
+            </View>
+            <View style={s.sizeRow}>
+              {FONT_SCALES.map((f) => {
+                const on = f.key === scaleKey;
+                return (
+                  <TouchableOpacity
+                    key={f.key}
+                    onPress={() => setScaleKey(f.key)}
+                    activeOpacity={0.7}
+                    style={[s.sizeBtn, on && s.sizeBtnOn]}
+                  >
+                    <Text style={[s.sizeText, on && s.sizeTextOn]}>{f.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={s.footer}>
+          <Text style={s.version}>App version v{APP_VERSION}</Text>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
-const makeStyles = (c) =>
+const makeStyles = (c, fs) =>
   StyleSheet.create({
-    overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 },
+    overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50, elevation: 50 },
     backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: c.overlay },
     panel: {
       position: 'absolute',
@@ -138,18 +152,48 @@ const makeStyles = (c) =>
       borderRightWidth: 1,
       borderRightColor: c.line,
     },
-    brand: { paddingHorizontal: 22, paddingBottom: 22, borderBottomWidth: 1, borderBottomColor: c.line, marginBottom: 6 },
-    brandName: { fontSize: 22, fontWeight: '800', color: c.ink },
-    brandSub: { fontSize: 13, color: c.muted, marginTop: 2 },
+    brand: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 22,
+      paddingBottom: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: c.line,
+    },
+    brandName: { fontFamily: font.black, fontSize: fs(22), color: c.ink },
+    brandSub: { fontFamily: font.regular, fontSize: fs(13), color: c.muted, marginTop: 2 },
+    closeBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: -8 },
+    group: {
+      fontFamily: font.bold,
+      fontSize: fs(12),
+      color: c.muted,
+      paddingHorizontal: 22,
+      marginTop: 20,
+      marginBottom: 6,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
       paddingHorizontal: 22,
-      paddingVertical: 16,
+      paddingVertical: 11,
     },
-    rowText: { fontSize: 16, color: c.ink, fontWeight: '600' },
-    chev: { fontSize: 16, color: c.muted },
+    rowText: { flex: 1, fontFamily: font.semibold, fontSize: fs(16), color: c.ink, marginLeft: 14 },
+    sizeBlock: { paddingHorizontal: 22, paddingVertical: 11 },
+    sizeHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+    sizeRow: { flexDirection: 'row', gap: 8 },
+    sizeBtn: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+      borderWidth: 1.5,
+      borderColor: c.line,
+    },
+    sizeBtnOn: { backgroundColor: c.primary, borderColor: c.primary },
+    sizeText: { fontFamily: font.bold, fontSize: fs(15), color: c.ink },
+    sizeTextOn: { color: c.onPrimary },
     footer: {
       position: 'absolute',
       left: 0,
@@ -158,14 +202,7 @@ const makeStyles = (c) =>
       padding: 22,
       borderTopWidth: 1,
       borderTopColor: c.line,
+      backgroundColor: c.card,
     },
-    version: { fontSize: 13, color: c.muted },
-    modalWrap: { flex: 1, justifyContent: 'center', padding: 24 },
-    modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: c.overlay },
-    sheet: { backgroundColor: c.card, borderRadius: radius.md, padding: 22, borderWidth: 1, borderColor: c.line },
-    sheetTitle: { fontSize: 20, fontWeight: '800', color: c.ink, marginBottom: 12 },
-    para: { fontSize: 15, lineHeight: 22, color: c.ink, marginBottom: 12 },
-    contact: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.line },
-    contactLabel: { fontSize: 13, color: c.muted },
-    contactValue: { fontSize: 16, color: c.deficit, fontWeight: '600', marginTop: 2 },
+    version: { fontFamily: font.medium, fontSize: fs(13), color: c.muted },
   });

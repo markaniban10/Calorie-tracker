@@ -1,20 +1,73 @@
-import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import { colors, radius } from '../theme';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme, useStyles, radius, font } from '../theme';
+
+// Standard "are you sure?" dialog for every delete in the app.
+export function confirmRemove(title, message, onConfirm) {
+  Alert.alert(title, message, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Remove', style: 'destructive', onPress: onConfirm },
+  ]);
+}
 
 export function Card({ children, style }) {
+  const s = useStyles(makeStyles);
   return <View style={[s.card, style]}>{children}</View>;
 }
 
 export function Label({ children }) {
+  const s = useStyles(makeStyles);
   return <Text style={s.label}>{children}</Text>;
 }
 
+// Small round icon, tinted. tone: 'deficit' | 'surplus' | 'neutral'
+export function IconCircle({ name, tone = 'deficit', size = 40 }) {
+  const { colors } = useTheme();
+  const map = {
+    deficit: [colors.deficitSoft, colors.deficit],
+    surplus: [colors.surplusSoft, colors.surplus],
+    neutral: [colors.bg, colors.muted],
+  };
+  const [bg, fg] = map[tone] || map.deficit;
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Ionicons name={name} size={Math.round(size * 0.5)} color={fg} />
+    </View>
+  );
+}
+
+export function SectionTitle({ icon, title, right }) {
+  const s = useStyles(makeStyles);
+  const { colors, fs } = useTheme();
+  return (
+    <View style={s.sectionRow}>
+      <View style={s.sectionLeft}>
+        {icon ? <Ionicons name={icon} size={fs(20)} color={colors.ink} style={{ marginRight: 8 }} /> : null}
+        <Text style={s.sectionTitle}>{title}</Text>
+      </View>
+      {right ? <Text style={s.sectionRight}>{right}</Text> : null}
+    </View>
+  );
+}
+
 export function Field({ label, suffix, value, onChangeText, placeholder, keyboardType = 'numeric' }) {
+  const s = useStyles(makeStyles);
+  const { colors } = useTheme();
+  const [focus, setFocus] = useState(false);
   return (
     <View style={s.fieldWrap}>
       <Label>{label}</Label>
-      <View style={s.inputRow}>
+      <View style={[s.inputRow, focus && s.inputFocus]}>
         <TextInput
           style={s.input}
           value={value}
@@ -22,6 +75,8 @@ export function Field({ label, suffix, value, onChangeText, placeholder, keyboar
           placeholder={placeholder}
           placeholderTextColor={colors.muted}
           keyboardType={keyboardType}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
         />
         {suffix ? <Text style={s.suffix}>{suffix}</Text> : null}
       </View>
@@ -30,6 +85,7 @@ export function Field({ label, suffix, value, onChangeText, placeholder, keyboar
 }
 
 export function Chips({ options, value, onChange }) {
+  const s = useStyles(makeStyles);
   return (
     <View style={s.chips}>
       {options.map((o) => {
@@ -49,61 +105,131 @@ export function Chips({ options, value, onChange }) {
   );
 }
 
-export function Button({ title, onPress, variant = 'solid', style }) {
+// variant: 'solid' | 'ghost' | 'danger'.  icon: Ionicons name (optional)
+export function Button({ title, onPress, variant = 'solid', style, small, icon }) {
+  const s = useStyles(makeStyles);
+  const { colors, fs } = useTheme();
+  const tint = variant === 'solid' ? colors.onPrimary : variant === 'danger' ? colors.danger : colors.ink;
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.8}
-      style={[s.btn, variant === 'ghost' && s.btnGhost, style]}
+      style={[
+        s.btn,
+        small && s.btnSmall,
+        variant === 'ghost' && s.btnGhost,
+        variant === 'danger' && s.btnDanger,
+        style,
+      ]}
     >
-      <Text style={[s.btnText, variant === 'ghost' && s.btnGhostText]}>{title}</Text>
+      {icon ? <Ionicons name={icon} size={fs(small ? 16 : 18)} color={tint} style={{ marginRight: 8 }} /> : null}
+      <Text
+        style={[
+          s.btnText,
+          small && s.btnTextSmall,
+          variant === 'ghost' && s.btnGhostText,
+          variant === 'danger' && s.btnDangerText,
+        ]}
+      >
+        {title}
+      </Text>
     </TouchableOpacity>
   );
 }
 
-const s = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radius.md,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  label: { fontSize: 13, color: colors.muted, marginBottom: 6, fontWeight: '600' },
-  fieldWrap: { flex: 1, marginBottom: 12 },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.sm,
-    backgroundColor: colors.bg,
-    paddingHorizontal: 12,
-  },
-  input: { flex: 1, height: 46, fontSize: 17, color: colors.ink },
-  suffix: { color: colors.muted, fontSize: 14, marginLeft: 6 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  chip: {
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.card,
-  },
-  chipOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { color: colors.ink, fontSize: 14, fontWeight: '600' },
-  chipTextOn: { color: '#fff' },
-  btn: {
-    height: 48,
-    borderRadius: radius.sm,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  btnGhost: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.line },
-  btnGhostText: { color: colors.ink },
-});
+// tone: 'deficit' | 'surplus'.  icon: Ionicons name (optional)
+export function Badge({ text, tone, icon }) {
+  const s = useStyles(makeStyles);
+  const { colors, fs } = useTheme();
+  const surplus = tone === 'surplus';
+  return (
+    <View style={[s.badge, surplus ? s.badgeSurplus : s.badgeDeficit]}>
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={fs(14)}
+          color={surplus ? colors.surplus : colors.deficit}
+          style={{ marginRight: 5 }}
+        />
+      ) : null}
+      <Text style={[s.badgeText, surplus ? s.badgeTextSurplus : s.badgeTextDeficit]}>{text}</Text>
+    </View>
+  );
+}
+
+const makeStyles = (c, fs) =>
+  StyleSheet.create({
+    card: {
+      backgroundColor: c.card,
+      borderRadius: radius.md,
+      padding: 18,
+      marginBottom: 14,
+      borderWidth: 1,
+      borderColor: c.line,
+      ...c.shadow,
+    },
+    label: { fontFamily: font.semibold, fontSize: fs(13), color: c.muted, marginBottom: 6 },
+    sectionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 10,
+      marginTop: 4,
+    },
+    sectionLeft: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
+    sectionTitle: { fontFamily: font.bold, fontSize: fs(18), color: c.ink },
+    sectionRight: { fontFamily: font.regular, fontSize: fs(13), color: c.muted, marginLeft: 8 },
+    fieldWrap: { flex: 1, marginBottom: 12 },
+    inputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1.5,
+      borderColor: c.line,
+      borderRadius: radius.sm,
+      backgroundColor: c.inputBg,
+      paddingHorizontal: 14,
+    },
+    inputFocus: { borderColor: c.deficit },
+    input: { flex: 1, minHeight: fs(50), fontFamily: font.medium, fontSize: fs(17), color: c.ink },
+    suffix: { fontFamily: font.medium, color: c.muted, fontSize: fs(14), marginLeft: 6 },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+    chip: {
+      paddingVertical: 9,
+      paddingHorizontal: 16,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: c.line,
+      backgroundColor: c.card,
+    },
+    chipOn: { backgroundColor: c.primary, borderColor: c.primary },
+    chipText: { fontFamily: font.semibold, color: c.ink, fontSize: fs(14) },
+    chipTextOn: { color: c.onPrimary },
+    btn: {
+      flexDirection: 'row',
+      minHeight: fs(52),
+      borderRadius: radius.sm,
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 18,
+    },
+    btnSmall: { minHeight: fs(42), paddingHorizontal: 14 },
+    btnText: { fontFamily: font.bold, color: c.onPrimary, fontSize: fs(16) },
+    btnTextSmall: { fontSize: fs(14) },
+    btnGhost: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: c.line },
+    btnGhostText: { color: c.ink },
+    btnDanger: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: c.danger },
+    btnDangerText: { color: c.danger },
+    badge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: radius.pill,
+    },
+    badgeDeficit: { backgroundColor: c.deficitSoft },
+    badgeSurplus: { backgroundColor: c.surplusSoft },
+    badgeText: { fontFamily: font.bold, fontSize: fs(13) },
+    badgeTextDeficit: { color: c.deficit },
+    badgeTextSurplus: { color: c.surplus },
+  });

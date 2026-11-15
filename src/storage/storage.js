@@ -108,6 +108,17 @@ export async function saveProfile(p) {
   return p;
 }
 
+// ---------- Settings (dark mode etc.) ----------
+
+export async function getSetting(key) {
+  const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', [key]);
+  return row ? row.value : null;
+}
+
+export async function setSetting(key, value) {
+  await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
+}
+
 // ---------- Foods ----------
 
 // Escape % _ \ so typed characters are matched literally in LIKE.
@@ -149,15 +160,28 @@ export async function getRecentFoods(limit = 5) {
   return rows.map(toFood);
 }
 
-export async function addCustomFood({ name, serving, kcal, grams = null }) {
+export async function addCustomFood({ name, serving, kcal, grams = null, markUsed = true }) {
   const label = serving || '1 serving';
   const g = grams && grams > 0 ? grams : null;
   const k = Math.round(kcal);
   const res = await db.runAsync(
     'INSERT INTO foods (name, serving, kcal, grams, is_custom, last_used) VALUES (?, ?, ?, ?, 1, ?)',
-    [name, label, k, g, Date.now()]
+    [name, label, k, g, markUsed ? Date.now() : null]
   );
   return { id: res.lastInsertRowId, name, serving: label, kcal: k, grams: g, isCustom: true };
+}
+
+export async function getCustomFoods() {
+  const rows = await db.getAllAsync('SELECT * FROM foods WHERE is_custom = 1 ORDER BY name COLLATE NOCASE');
+  return rows.map(toFood);
+}
+
+// Editing a food never changes past log entries (they keep their own name + kcal).
+export async function updateCustomFood({ id, name, serving, kcal, grams = null }) {
+  await db.runAsync(
+    'UPDATE foods SET name = ?, serving = ?, kcal = ?, grams = ? WHERE id = ? AND is_custom = 1',
+    [name, serving || '1 serving', Math.round(kcal), grams && grams > 0 ? grams : null, id]
+  );
 }
 
 // Only your own foods can be removed. Past log entries keep their name + kcal.

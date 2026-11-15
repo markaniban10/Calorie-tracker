@@ -1,12 +1,13 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-import { useTheme } from '../theme';
+import { useTheme, useStyles, font } from '../theme';
 
 const ToastContext = createContext({ show: () => {} });
 export const useToast = () => useContext(ToastContext);
 
 export function ToastProvider({ children }) {
   const { colors } = useTheme();
+  const s = useStyles(makeStyles);
   const [message, setMessage] = useState('');
   const opacity = useRef(new Animated.Value(0)).current;
   const timer = useRef(null);
@@ -29,10 +30,7 @@ export function ToastProvider({ children }) {
     <ToastContext.Provider value={value}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         {children}
-        <Animated.View
-          pointerEvents="none"
-          style={[s.toast, { opacity, backgroundColor: colors.ink }]}
-        >
+        <Animated.View pointerEvents="none" style={[s.toast, { opacity, backgroundColor: colors.ink }]}>
           <Text style={[s.text, { color: colors.bg }]} numberOfLines={2}>
             {message}
           </Text>
@@ -42,16 +40,17 @@ export function ToastProvider({ children }) {
   );
 }
 
-const s = StyleSheet.create({
-  toast: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    bottom: 96,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  text: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
-});
+const makeStyles = (c, fs) =>
+  StyleSheet.create({
+    toast: {
+      position: 'absolute',
+      left: 24,
+      right: 24,
+      bottom: 104,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      alignItems: 'center',
+    },
+    text: { fontFamily: font.semibold, fontSize: fs(14), textAlign: 'center' },
+  });
