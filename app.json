@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "calorie-tracker",
@@ -10,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.calorietracker.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,9 +22,8 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-sqlite",
-      "expo-font"
-    ]
-  }
+"plugins": [
+  "expo-sqlite",
+  "expo-font"
+]  }
 }

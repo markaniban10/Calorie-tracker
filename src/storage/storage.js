@@ -12,13 +12,14 @@ const toFood = (r) => ({
   id: r.id,
   name: r.name,
   serving: r.serving,
-  grams: r.grams, // weight of one serving in grams, or null
-  kcal: r.kcal, // kcal per serving
+  grams: r.grams,
+  kcal: r.kcal,
   isCustom: !!r.is_custom,
 });
 
 export async function initStorage() {
   if (db) return;
+
   db = await SQLite.openDatabaseAsync('calorie-tracker.db');
 
   await db.execAsync(`
@@ -56,8 +57,8 @@ export async function initStorage() {
     );
   `);
 
-  // Migration: installs made before the grams column existed.
   const cols = await db.getAllAsync('PRAGMA table_info(foods)');
+
   if (!cols.some((c) => c.name === 'grams')) {
     await db.execAsync('ALTER TABLE foods ADD COLUMN grams REAL');
   }
@@ -65,12 +66,17 @@ export async function initStorage() {
   await seedFoods();
 }
 
-// Loads the bundled foods. Re-runs only when SEED_VERSION increases:
-// existing bundled foods are updated, missing ones are inserted,
-// and your own custom foods are never touched.
+// Loads bundled foods without touching custom foods.
 async function seedFoods() {
-  const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', ['seed_version']);
-  const count = await db.getFirstAsync('SELECT COUNT(*) AS n FROM foods WHERE is_custom = 0');
+  const row = await db.getFirstAsync(
+    'SELECT value FROM settings WHERE key = ?',
+    ['seed_version']
+  );
+
+  const count = await db.getFirstAsync(
+    'SELECT COUNT(*) AS n FROM foods WHERE is_custom = 0'
+  );
+
   if (row && Number(row.value) >= SEED_VERSION && count.n > 0) return;
 
   await db.withTransactionAsync(async () => {
@@ -79,76 +85,101 @@ async function seedFoods() {
         'UPDATE foods SET grams = ?, kcal = ? WHERE name = ? AND serving = ? AND is_custom = 0',
         [grams, kcal, name, serving]
       );
+
       await db.runAsync(
         `INSERT INTO foods (name, serving, grams, kcal, is_custom)
          SELECT ?, ?, ?, ?, 0
-         WHERE NOT EXISTS (SELECT 1 FROM foods WHERE name = ? AND serving = ? AND is_custom = 0)`,
+         WHERE NOT EXISTS (
+           SELECT 1 FROM foods
+           WHERE name = ? AND serving = ? AND is_custom = 0
+         )`,
         [name, serving, grams, kcal, name, serving]
       );
     }
-    await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
-      'seed_version',
-      String(SEED_VERSION),
-    ]);
+
+    await db.runAsync(
+      'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+      ['seed_version', String(SEED_VERSION)]
+    );
   });
 }
 
 // ---------- Profile ----------
 
 export async function getProfile() {
-  const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', ['profile']);
+  const row = await db.getFirstAsync(
+    'SELECT value FROM settings WHERE key = ?',
+    ['profile']
+  );
+
   return row ? JSON.parse(row.value) : null;
 }
 
 export async function saveProfile(p) {
-  await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
-    'profile',
-    JSON.stringify(p),
-  ]);
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    ['profile', JSON.stringify(p)]
+  );
+
   return p;
 }
 
-// ---------- Settings (dark mode etc.) ----------
+// ---------- Settings ----------
 
 export async function getSetting(key) {
-  const row = await db.getFirstAsync('SELECT value FROM settings WHERE key = ?', [key]);
+  const row = await db.getFirstAsync(
+    'SELECT value FROM settings WHERE key = ?',
+    [key]
+  );
+
   return row ? row.value : null;
 }
 
 export async function setSetting(key, value) {
-  await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    [key, String(value)]
+  );
 }
 
 // ---------- Foods ----------
 
-// Escape % _ \ so typed characters are matched literally in LIKE.
 const esc = (s) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 
-// A word in the name must START with the typed text:
-// "ado" finds "Adobo" and "Chicken adobo", but not "Tomato".
 const WORD_START =
   "(name LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')";
 
-// Empty query -> every food, A to Z.
-// Otherwise every typed word must match the start of a word in the name.
-// Names that START with what you typed are listed first.
 export async function searchFoods(query, limit = 30) {
   const q = (query || '').trim().toLowerCase();
   let rows;
+
   if (!q) {
-    rows = await db.getAllAsync('SELECT * FROM foods ORDER BY name COLLATE NOCASE LIMIT ?', [limit]);
+    rows = await db.getAllAsync(
+      'SELECT * FROM foods ORDER BY name COLLATE NOCASE LIMIT ?',
+      [limit]
+    );
   } else {
     const words = q.split(/\s+/).map(esc);
     const where = words.map(() => WORD_START).join(' AND ');
-    const params = words.flatMap((w) => [`${w}%`, `% ${w}%`, `%(${w}%`, `%-${w}%`]);
+    const params = words.flatMap((w) => [
+      `${w}%`,
+      `% ${w}%`,
+      `%(${w}%`,
+      `%-${w}%`,
+    ]);
+
     rows = await db.getAllAsync(
       `SELECT * FROM foods WHERE ${where}
-       ORDER BY (name LIKE ? ESCAPE '\\') DESC, is_custom DESC,
-                (last_used IS NULL), last_used DESC, name COLLATE NOCASE
+       ORDER BY (name LIKE ? ESCAPE '\\') DESC,
+                is_custom DESC,
+                (last_used IS NULL),
+                last_used DESC,
+                name COLLATE NOCASE
        LIMIT ?`,
       [...params, `${esc(q)}%`, limit]
     );
   }
+
   return rows.map(toFood);
 }
 
@@ -157,54 +188,100 @@ export async function getRecentFoods(limit = 5) {
     'SELECT * FROM foods WHERE last_used IS NOT NULL ORDER BY last_used DESC LIMIT ?',
     [limit]
   );
+
   return rows.map(toFood);
 }
 
-export async function addCustomFood({ name, serving, kcal, grams = null, markUsed = true }) {
+export async function addCustomFood({
+  name,
+  serving,
+  kcal,
+  grams = null,
+  markUsed = true,
+}) {
   const label = serving || '1 serving';
   const g = grams && grams > 0 ? grams : null;
   const k = Math.round(kcal);
+
   const res = await db.runAsync(
     'INSERT INTO foods (name, serving, kcal, grams, is_custom, last_used) VALUES (?, ?, ?, ?, 1, ?)',
     [name, label, k, g, markUsed ? Date.now() : null]
   );
-  return { id: res.lastInsertRowId, name, serving: label, kcal: k, grams: g, isCustom: true };
+
+  return {
+    id: res.lastInsertRowId,
+    name,
+    serving: label,
+    kcal: k,
+    grams: g,
+    isCustom: true,
+  };
 }
 
 export async function getCustomFoods() {
-  const rows = await db.getAllAsync('SELECT * FROM foods WHERE is_custom = 1 ORDER BY name COLLATE NOCASE');
+  const rows = await db.getAllAsync(
+    'SELECT * FROM foods WHERE is_custom = 1 ORDER BY name COLLATE NOCASE'
+  );
+
   return rows.map(toFood);
 }
 
-// Editing a food never changes past log entries (they keep their own name + kcal).
-export async function updateCustomFood({ id, name, serving, kcal, grams = null }) {
+export async function updateCustomFood({
+  id,
+  name,
+  serving,
+  kcal,
+  grams = null,
+}) {
   await db.runAsync(
     'UPDATE foods SET name = ?, serving = ?, kcal = ?, grams = ? WHERE id = ? AND is_custom = 1',
-    [name, serving || '1 serving', Math.round(kcal), grams && grams > 0 ? grams : null, id]
+    [
+      name,
+      serving || '1 serving',
+      Math.round(kcal),
+      grams && grams > 0 ? grams : null,
+      id,
+    ]
   );
 }
 
-// Only your own foods can be removed. Past log entries keep their name + kcal.
 export async function deleteFood(id) {
-  await db.runAsync('DELETE FROM foods WHERE id = ? AND is_custom = 1', [id]);
+  await db.runAsync(
+    'DELETE FROM foods WHERE id = ? AND is_custom = 1',
+    [id]
+  );
 }
 
 // ---------- Daily log ----------
 
 export async function getEntries(date) {
-  return db.getAllAsync('SELECT id, date, name, kcal FROM entries WHERE date = ? ORDER BY id', [date]);
+  return db.getAllAsync(
+    'SELECT id, date, name, kcal FROM entries WHERE date = ? ORDER BY id',
+    [date]
+  );
 }
 
 export async function addEntry({ date, name, kcal, foodId = null }) {
   const label = name || 'Quick add';
+
   const res = await db.runAsync(
     'INSERT INTO entries (date, name, kcal, food_id) VALUES (?, ?, ?, ?)',
     [date, label, Math.round(kcal), foodId]
   );
+
   if (foodId) {
-    await db.runAsync('UPDATE foods SET last_used = ? WHERE id = ?', [Date.now(), foodId]);
+    await db.runAsync(
+      'UPDATE foods SET last_used = ? WHERE id = ?',
+      [Date.now(), foodId]
+    );
   }
-  return { id: res.lastInsertRowId, date, name: label, kcal: Math.round(kcal) };
+
+  return {
+    id: res.lastInsertRowId,
+    date,
+    name: label,
+    kcal: Math.round(kcal),
+  };
 }
 
 export async function deleteEntry(id) {
@@ -214,13 +291,19 @@ export async function deleteEntry(id) {
 // ---------- Weight ----------
 
 export async function getWeights() {
-  return db.getAllAsync('SELECT id, date, kg FROM weights ORDER BY date DESC');
+  return db.getAllAsync(
+    'SELECT id, date, kg FROM weights ORDER BY date DESC'
+  );
 }
 
-// One weigh-in per day: logging again the same day replaces it.
 export async function addWeight({ date, kg }) {
   const rounded = Math.round(kg * 10) / 10;
-  await db.runAsync('INSERT OR REPLACE INTO weights (date, kg) VALUES (?, ?)', [date, rounded]);
+
+  await db.runAsync(
+    'INSERT OR REPLACE INTO weights (date, kg) VALUES (?, ?)',
+    [date, rounded]
+  );
+
   return { date, kg: rounded };
 }
 
@@ -228,47 +311,90 @@ export async function deleteWeight(id) {
   await db.runAsync('DELETE FROM weights WHERE id = ?', [id]);
 }
 
-// ---------- Backup / restore (used by account cloud backup) ----------
+// ---------- Backup / restore ----------
 
 export async function exportData() {
   const profile = await getProfile();
-  const entries = await db.getAllAsync('SELECT date, name, kcal FROM entries ORDER BY id');
-  const weights = await db.getAllAsync('SELECT date, kg FROM weights ORDER BY date');
+
+  const entries = await db.getAllAsync(
+    'SELECT date, name, kcal FROM entries ORDER BY id'
+  );
+
+  const weights = await db.getAllAsync(
+    'SELECT date, kg FROM weights ORDER BY date'
+  );
+
   const customFoods = await db.getAllAsync(
     'SELECT name, serving, kcal, grams FROM foods WHERE is_custom = 1 ORDER BY id'
   );
-  return { schema: 1, exportedAt: Date.now(), profile, entries, weights, customFoods };
+
+  return {
+    schema: 1,
+    exportedAt: Date.now(),
+    profile,
+    entries,
+    weights,
+    customFoods,
+  };
 }
 
-// Replaces this phone's log, weights, own foods and profile with the backup.
+// Replaces personal data with the selected account's backup.
 export async function importData(data) {
-  if (!data || data.schema !== 1) throw new Error('This backup is not in a format this app understands.');
+  if (!data || data.schema !== 1) {
+    throw new Error('This backup is not in a format this app understands.');
+  }
+
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM entries');
     await db.runAsync('DELETE FROM weights');
     await db.runAsync('DELETE FROM foods WHERE is_custom = 1');
 
+    // Clear account-specific profile and recent-food history.
+    await db.runAsync(
+      "DELETE FROM settings WHERE key = 'profile'"
+    );
+    await db.runAsync('UPDATE foods SET last_used = NULL');
+
     for (const e of data.entries || []) {
-      await db.runAsync('INSERT INTO entries (date, name, kcal, food_id) VALUES (?, ?, ?, NULL)', [
-        e.date,
-        e.name,
-        e.kcal,
-      ]);
+      await db.runAsync(
+        'INSERT INTO entries (date, name, kcal, food_id) VALUES (?, ?, ?, NULL)',
+        [e.date, e.name, e.kcal]
+      );
     }
+
     for (const w of data.weights || []) {
-      await db.runAsync('INSERT OR REPLACE INTO weights (date, kg) VALUES (?, ?)', [w.date, w.kg]);
+      await db.runAsync(
+        'INSERT OR REPLACE INTO weights (date, kg) VALUES (?, ?)',
+        [w.date, w.kg]
+      );
     }
+
     for (const f of data.customFoods || []) {
       await db.runAsync(
         'INSERT INTO foods (name, serving, kcal, grams, is_custom, last_used) VALUES (?, ?, ?, ?, 1, NULL)',
         [f.name, f.serving, f.kcal, f.grams ?? null]
       );
     }
+
     if (data.profile) {
-      await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
-        'profile',
-        JSON.stringify(data.profile),
-      ]);
+      await db.runAsync(
+        'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+        ['profile', JSON.stringify(data.profile)]
+      );
     }
+  });
+}
+
+// Clears personal data but keeps bundled default foods and app settings.
+export async function resetPersonalData() {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM entries');
+    await db.runAsync('DELETE FROM weights');
+    await db.runAsync('DELETE FROM foods WHERE is_custom = 1');
+    await db.runAsync('UPDATE foods SET last_used = NULL');
+
+    await db.runAsync(
+      "DELETE FROM settings WHERE key IN ('profile', 'last_backup')"
+    );
   });
 }
