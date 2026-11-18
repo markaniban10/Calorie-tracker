@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, useStyles, FONT_SCALES, font, radius } from '../theme';
 import { IconCircle } from './ui';
+import { useToast } from './Toast';
 import { APP_NAME, APP_VERSION } from '../config';
 import { useAuth } from '../cloud/AuthContext';
 
@@ -24,7 +25,8 @@ const WIDTH = Math.min(Dimensions.get('window').width * 0.82, 340);
 export default function Drawer({ visible, onClose, onNavigate }) {
   const { colors, dark, toggleDark, scaleKey, setScaleKey, fs } = useTheme();
   const s = useStyles(makeStyles);
-  const { user } = useAuth();
+  const { show } = useToast();
+  const { user, autoSave, setAutoSave } = useAuth();
   const slide = useRef(new Animated.Value(0)).current; // 0 = closed, 1 = open
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -58,6 +60,16 @@ export default function Drawer({ visible, onClose, onNavigate }) {
   }, [visible, onClose]);
 
   if (!mounted) return null;
+
+  const toggleAutoSave = async (value) => {
+    try {
+      await setAutoSave(value);
+      show(value ? 'Auto-save is on' : 'Auto-save is off');
+    } catch (e) {
+      // the choice is kept; only the first save failed (for example no internet)
+      show(`Auto-save is on, but the first save failed: ${e.message}`);
+    }
+  };
 
   const navRow = (icon, label, page, sub) => (
     <TouchableOpacity key={label} style={s.row} onPress={() => onNavigate(page)} activeOpacity={0.7}>
@@ -111,6 +123,23 @@ export default function Drawer({ visible, onClose, onNavigate }) {
           {navRow('mail-outline', 'Contacts', 'contacts')}
 
           <Text style={s.group}>Preferences</Text>
+
+          <View style={s.row}>
+            <IconCircle name="cloud-upload-outline" size={38} tone="neutral" />
+            <View style={s.rowTextWrap}>
+              <Text style={s.rowLabel}>Auto-save</Text>
+              <Text style={s.rowSub} numberOfLines={2}>
+                {user ? 'Saves to your account after changes' : 'Sign in to turn this on'}
+              </Text>
+            </View>
+            <Switch
+              value={!!user && autoSave}
+              onValueChange={toggleAutoSave}
+              disabled={!user}
+              trackColor={{ false: colors.line, true: colors.deficit }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
 
           <View style={s.row}>
             <IconCircle name={dark ? 'moon' : 'sunny-outline'} size={38} tone="neutral" />

@@ -5,7 +5,8 @@
     "slug": "calorie-tracker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/cal.png",
+    "scheme": "calorietracker",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -14,9 +15,9 @@
       "package": "com.calorietracker.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/calorie-tracker-logo.png",
+        "backgroundImage": "./assets/images/calorie-tracker-logo.png",
+        "monochromeImage": "./assets/images/calorie-tracker-logo.png"
       }
     },
     "web": {

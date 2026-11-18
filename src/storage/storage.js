@@ -8,6 +8,26 @@ import { SEED_FOODS, SEED_VERSION } from '../data/foods';
 
 let db = null;
 
+// ---------- Change notifications (used by auto-save) ----------
+// Called after the user's own data changes (log, weight, own foods, profile).
+// Not called for settings, restores or resets.
+const listeners = new Set();
+
+export function subscribeToChanges(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+function notifyChange() {
+  listeners.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {
+      // a broken listener must never break saving data
+    }
+  });
+}
+
 const toFood = (r) => ({
   id: r.id,
   name: r.name,
@@ -121,6 +141,7 @@ export async function saveProfile(p) {
     ['profile', JSON.stringify(p)]
   );
 
+  notifyChange();
   return p;
 }
 
@@ -208,6 +229,8 @@ export async function addCustomFood({
     [name, label, k, g, markUsed ? Date.now() : null]
   );
 
+  notifyChange();
+
   return {
     id: res.lastInsertRowId,
     name,
@@ -243,6 +266,8 @@ export async function updateCustomFood({
       id,
     ]
   );
+
+  notifyChange();
 }
 
 export async function deleteFood(id) {
@@ -250,6 +275,8 @@ export async function deleteFood(id) {
     'DELETE FROM foods WHERE id = ? AND is_custom = 1',
     [id]
   );
+
+  notifyChange();
 }
 
 // ---------- Daily log ----------
@@ -276,6 +303,8 @@ export async function addEntry({ date, name, kcal, foodId = null }) {
     );
   }
 
+  notifyChange();
+
   return {
     id: res.lastInsertRowId,
     date,
@@ -286,6 +315,7 @@ export async function addEntry({ date, name, kcal, foodId = null }) {
 
 export async function deleteEntry(id) {
   await db.runAsync('DELETE FROM entries WHERE id = ?', [id]);
+  notifyChange();
 }
 
 // ---------- Weight ----------
@@ -304,11 +334,13 @@ export async function addWeight({ date, kg }) {
     [date, rounded]
   );
 
+  notifyChange();
   return { date, kg: rounded };
 }
 
 export async function deleteWeight(id) {
   await db.runAsync('DELETE FROM weights WHERE id = ?', [id]);
+  notifyChange();
 }
 
 // ---------- Backup / restore ----------

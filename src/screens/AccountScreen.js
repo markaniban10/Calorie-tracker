@@ -1,41 +1,30 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { ScrollView, View, Text, Alert, StyleSheet } from 'react-native';
 import { Card, Button, Badge, IconCircle, SectionTitle } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useAuth } from '../cloud/AuthContext';
-import * as storage from '../storage/storage';
 import { useStyles, font } from '../theme';
 
 export default function AccountScreen({ onOpenLogin }) {
   const s = useStyles(makeStyles);
   const { show } = useToast();
-  const { user, cloudReady, signOut, backupNow, restoreNow } = useAuth();
-  const [lastBackup, setLastBackup] = useState(null);
+  const { user, cloudReady, signOut, saveNow, restoreNow, autoSave, lastSaved, saveStatus } = useAuth();
   const [busy, setBusy] = useState('');
 
-  const loadLast = useCallback(async () => {
-    const v = await storage.getSetting('last_backup');
-    setLastBackup(v ? Number(v) : null);
-  }, []);
-  useEffect(() => {
-    loadLast();
-  }, [loadLast]);
-
-  const doBackup = async () => {
-    setBusy('backup');
+  const doSave = async () => {
+    setBusy('save');
     try {
-      await backupNow();
-      show('Backed up to your account');
-      loadLast();
+      await saveNow();
+      show('Saved to your account');
     } catch (e) {
-      Alert.alert('Backup failed', e.message);
+      Alert.alert('Save failed', e.message);
     } finally {
       setBusy('');
     }
   };
 
   const doRestore = () =>
-    Alert.alert('Restore from your account?', 'This replaces the data on this phone with your saved backup.', [
+    Alert.alert('Restore from your account?', 'This replaces the data on this phone with your saved data.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Restore',
@@ -45,7 +34,6 @@ export default function AccountScreen({ onOpenLogin }) {
           try {
             await restoreNow();
             show('Data restored');
-            loadLast();
           } catch (e) {
             Alert.alert('Restore failed', e.message);
           } finally {
@@ -80,7 +68,7 @@ export default function AccountScreen({ onOpenLogin }) {
           <IconCircle name="person-outline" size={64} tone="neutral" />
           <Text style={s.name}>You are using a guest account</Text>
           <Text style={s.sub}>
-            Everything works offline and your data is saved on this phone only. Sign in to back it up to your account.
+            Everything works offline and your data is saved on this phone only. Sign in to save it to your account.
           </Text>
           <Button
             title="Sign in or create account"
@@ -99,6 +87,18 @@ export default function AccountScreen({ onOpenLogin }) {
   }
 
   // Signed in
+  const saving = saveStatus === 'saving' || busy === 'save';
+  const failed = saveStatus === 'error';
+
+  let status;
+  if (saving) {
+    status = 'Saving...';
+  } else if (lastSaved) {
+    status = `Last saved: ${new Date(lastSaved).toLocaleString()}`;
+  } else {
+    status = 'Not saved yet. Tap Save to store your log, weight history, foods and profile in your account.';
+  }
+
   return (
     <ScrollView contentContainerStyle={s.pad}>
       <Card style={s.center}>
@@ -110,18 +110,18 @@ export default function AccountScreen({ onOpenLogin }) {
         </View>
       </Card>
 
-      <SectionTitle icon="cloud-outline" title="Cloud backup" />
+      <SectionTitle icon="cloud-outline" title="Cloud save" />
       <Card>
-        <Text style={s.body}>
-          {lastBackup
-            ? `Last backup: ${new Date(lastBackup).toLocaleString()}`
-            : 'No backup yet. Back up to save your log, weight history, foods and profile to your account.'}
-        </Text>
+        <Text style={s.body}>{status}</Text>
+        {failed && !saving && (
+          <Text style={s.error}>The last save did not go through. It will try again when you are back online.</Text>
+        )}
+
         <Button
-          title={busy === 'backup' ? 'Backing up...' : 'Back up now'}
-          icon="cloud-upload-outline"
-          onPress={doBackup}
-          disabled={!!busy}
+          title={busy === 'save' ? 'Saving...' : 'Save'}
+          icon="save-outline"
+          onPress={doSave}
+          disabled={!!busy || saving}
           style={{ marginTop: 14 }}
         />
         <Button
@@ -129,12 +129,14 @@ export default function AccountScreen({ onOpenLogin }) {
           icon="cloud-download-outline"
           variant="ghost"
           onPress={doRestore}
-          disabled={!!busy}
+          disabled={!!busy || saving}
           style={{ marginTop: 8 }}
         />
         <Text style={s.hint}>
-          Backups need an internet connection. The app itself always works offline, and a backup only changes when you
-          tap Back up now.
+          {autoSave
+            ? 'Auto-save is on: your changes are saved to your account a few seconds after you make them.'
+            : 'Auto-save is off. Tap Save to store your latest changes, or turn on Auto-save in the menu.'}{' '}
+          Saving needs an internet connection. The app itself always works offline.
         </Text>
       </Card>
 
@@ -165,5 +167,6 @@ const makeStyles = (c, fs) =>
       textAlign: 'center',
     },
     body: { fontFamily: font.medium, fontSize: fs(15), lineHeight: fs(22), color: c.ink },
+    error: { fontFamily: font.medium, fontSize: fs(13), lineHeight: fs(19), color: c.danger, marginTop: 8 },
     hint: { fontFamily: font.regular, fontSize: fs(12), lineHeight: fs(18), color: c.muted, marginTop: 12 },
   });

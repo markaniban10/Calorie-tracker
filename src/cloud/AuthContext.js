@@ -4,8 +4,11 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+
+import { AppState } from 'react-native';
 
 import {
   createUserWithEmailAndPassword,
@@ -24,6 +27,9 @@ const NOT_SETUP =
   'Accounts are not set up in this build yet. Add your Firebase keys in src/cloud/firebaseConfig.js.';
 
 const MAX_BACKUP_CHARS = 900000;
+
+// Auto-save waits this long after the last change before saving.
+const AUTO_SAVE_DELAY_MS = 2500;
 
 function friendlyError(e) {
   const code = e && e.code ? String(e.code) : '';
@@ -89,6 +95,11 @@ const AuthContext = createContext({
   restoreNow: noop,
   getCloudInfo: async () => null,
   startFreshAccount: noop,
+  saveNow: noop,
+  autoSave: false,
+  setAutoSave: noop,
+  lastSaved: null,
+  saveStatus: 'idle',
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -99,9 +110,29 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(isCloudConfigured);
 
+  // Saving to the account
+  const [autoSave, setAutoSaveState] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null); // time of the last save, or null
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+  const dirtyRef = useRef(false); // true when there are changes not yet saved
+  const timerRef = useRef(null);
+
   const setMode = useCallback((m) => {
     setModeState(m);
     storage.setSetting('account_mode', m).catch(() => {});
+  }, []);
+
+  // Load the saved auto-save choice and the time of the last save.
+  useEffect(() => {
+    (async () => {
+      try {
+        setAutoSaveState((await storage.getSetting('auto_save')) === '1');
+        const last = await storage.getSetting('last_backup');
+        setLastSaved(last ? Number(last) : null);
+      } catch (e) {
+        // keep the defaults
+      }
+    })();
   }, []);
 
   // Follow Firebase's sign-in state.
@@ -130,6 +161,14 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       setMode('guest');
     }
   }, [authLoading, mode, user, setMode]);
+
+  // Signed out: nothing is waiting to be saved any more.
+  useEffect(() => {
+    if (!user) {
+      dirtyRef.current = false;
+      setSaveStatus('idle');
+    }
+  }, [user]);
 
   const continueAsGuest = useCallback(
     () => setMode('guest'),
@@ -191,7 +230,7 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
     return uid;
   };
 
-  // Get the current account's cloud backup information.
+  // Get the current account's cloud save information.
   const getCloudInfo = useCallback(async () => {
     const uid = requireUid();
 
@@ -206,7 +245,7 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
     }
   }, []);
 
-  // Back up local data to the current account.
+  // Write this phone's data to the current account.
   const backupNow = useCallback(async () => {
     const uid = requireUid();
 
@@ -215,7 +254,7 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       const payload = JSON.stringify(data);
 
       if (payload.length > MAX_BACKUP_CHARS) {
-        throw new Error('Your data is too large to back up to this account.');
+        throw new Error('Your data is too large to save to this account.');
       }
 
       const at = Date.now();
@@ -227,6 +266,7 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       });
 
       await storage.setSetting('last_backup', String(at));
+      setLastSaved(at);
 
       return at;
     } catch (e) {
@@ -234,7 +274,24 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
     }
   }, []);
 
-  // Restore the current account's cloud backup.
+  // Save now (used by the Save button and by auto-save). Keeps saveStatus up to date.
+  const saveNow = useCallback(async () => {
+    clearTimeout(timerRef.current);
+    dirtyRef.current = false;
+    setSaveStatus('saving');
+
+    try {
+      const at = await backupNow();
+      setSaveStatus('saved');
+      return at;
+    } catch (e) {
+      dirtyRef.current = true; // try again on the next change or when the app comes back
+      setSaveStatus('error');
+      throw e;
+    }
+  }, [backupNow]);
+
+  // Restore the current account's cloud save.
   const restoreNow = useCallback(async () => {
     const uid = requireUid();
 
@@ -242,16 +299,17 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       const snap = await getDoc(doc(db, 'users', uid));
 
       if (!snap.exists()) {
-        throw new Error('No backup was found for this account yet.');
+        throw new Error('No saved data was found for this account yet.');
       }
 
       const data = JSON.parse(snap.data().payload);
+      const at = snap.data().updatedAt || Date.now();
 
       await storage.importData(data);
-      await storage.setSetting(
-        'last_backup',
-        String(snap.data().updatedAt || Date.now())
-      );
+      await storage.setSetting('last_backup', String(at));
+      setLastSaved(at);
+      dirtyRef.current = false;
+      setSaveStatus('saved');
 
       if (onDataRestored) {
         await onDataRestored();
@@ -266,6 +324,7 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
   // Prepare a clean local database for a new account.
   const startFreshAccount = useCallback(async () => {
     await storage.resetPersonalData();
+    setLastSaved(null);
 
     if (onDataRestored) {
       await onDataRestored();
@@ -273,6 +332,52 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
 
     await backupNow();
   }, [onDataRestored, backupNow]);
+
+  // Turn auto-save on or off. Turning it on saves right away.
+  // The choice is kept even if that first save fails (for example when offline).
+  const setAutoSave = useCallback(
+    async (value) => {
+      setAutoSaveState(value);
+      await storage.setSetting('auto_save', value ? '1' : '0');
+
+      if (value && auth && auth.currentUser) {
+        await saveNow();
+      }
+    },
+    [saveNow]
+  );
+
+  // Auto-save: a few seconds after the last change, save to the account.
+  useEffect(() => {
+    if (!autoSave || !user) return undefined;
+
+    const unsubscribe = storage.subscribeToChanges(() => {
+      dirtyRef.current = true;
+      clearTimeout(timerRef.current);
+
+      timerRef.current = setTimeout(() => {
+        saveNow().catch(() => {});
+      }, AUTO_SAVE_DELAY_MS);
+    });
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timerRef.current);
+    };
+  }, [autoSave, user, saveNow]);
+
+  // Auto-save: save straight away when the app goes to the background, and retry when it comes back.
+  useEffect(() => {
+    if (!autoSave || !user) return undefined;
+
+    const sub = AppState.addEventListener('change', () => {
+      if (dirtyRef.current) {
+        saveNow().catch(() => {});
+      }
+    });
+
+    return () => sub.remove();
+  }, [autoSave, user, saveNow]);
 
   const value = useMemo(
     () => ({
@@ -289,6 +394,11 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       restoreNow,
       getCloudInfo,
       startFreshAccount,
+      saveNow,
+      autoSave,
+      setAutoSave,
+      lastSaved,
+      saveStatus,
     }),
     [
       mode,
@@ -303,6 +413,11 @@ export function AuthProvider({ initialMode, onDataRestored, children }) {
       restoreNow,
       getCloudInfo,
       startFreshAccount,
+      saveNow,
+      autoSave,
+      setAutoSave,
+      lastSaved,
+      saveStatus,
     ]
   );
 

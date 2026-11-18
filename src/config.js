@@ -30,6 +30,6 @@ export const HIGHLIGHTS = [
 
 // Replace these with your real details.
 export const CONTACTS = [
-  { icon: 'mail-outline', label: 'Email', value: 'your-email@example.com', url: 'mailto:your-email@example.com' },
-  { icon: 'logo-facebook', label: 'Facebook', value: 'facebook.com/your-page', url: 'https://facebook.com/your-page' },
+  { icon: 'mail-outline', label: 'Dev1', value: 'markaniban54@gmail.com', url: 'mailto:markaniban54@gmail.com' },
+  { icon: 'mail-outline', label: 'Dev2', value: 'ezekielserva95@gmal.com', url: 'ezekielserva95@gmal.com' },
 ];
